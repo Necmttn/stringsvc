@@ -24,3 +24,6 @@ func (stringService) Count(s string) int {
 }
 
 var ErrEmpty = errors.New("Empty string")
+
+// ServiceMiddleware is a chainable behaivor modifier for StringService.
+type ServiceMiddleware func(StringService) StringService

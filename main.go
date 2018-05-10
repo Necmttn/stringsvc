@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"net/http"
 	"os"
 
@@ -13,7 +15,15 @@ import (
 )
 
 func main() {
-	logger := log.NewLogfmtLogger(os.Stderr)
+	var (
+		listen = flag.String("listen", ":8080", "HTTP listen address")
+		proxy  = flag.String("proxy", "", "Optinal comma-seperated list of URLs to proxy uppercase request")
+	)
+	flag.Parse()
+
+	var logger log.Logger
+	logger = log.NewLogfmtLogger(os.Stderr)
+	logger = log.With(logger, "listen", *listen, "caller", log.DefaultCaller)
 
 	fieldKeys := []string{"method", "error"}
 	requestCount := kitprometheus.NewCounterFrom(stdprometheus.CounterOpts{
@@ -40,18 +50,19 @@ func main() {
 
 	var svc StringService
 	svc = stringService{}
+	svc = proxyingMiddleware(context.Background(), *proxy, logger)(svc)
 	svc = loggingMiddleware{logger, svc}
 	svc = instrumentingMiddleware{requestCount, requestLatecy, countResult, svc}
 
 	uppercaseHandler := httptransport.NewServer(
-		decodeUppercaseRequest,
 		makeUppercaseEndpoint(svc),
+		decodeUppercaseRequest,
 		encodeResponse,
 	)
 
 	countHandler := httptransport.NewServer(
-		decodeCountRequest,
 		makeCountEndpoint(svc),
+		decodeCountRequest,
 		encodeResponse,
 	)
 
@@ -59,6 +70,6 @@ func main() {
 	http.Handle("/count", countHandler)
 	http.Handle("/metrics", promhttp.Handler())
 
-	logger.Log("msg", "HTTP", "addr", "8080")
-	logger.Log("err", http.ListenAndServe(":8080", nil))
+	logger.Log("msg", "HTTP", "addr", *listen)
+	logger.Log("err", http.ListenAndServe(*listen, nil))
 }
